@@ -12,8 +12,11 @@ import openpyxl
 from dotenv import load_dotenv
 import secrets
 import os
+import logging
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
 container_name = os.getenv('AZURE_CONTAINER_NAME')
@@ -28,7 +31,6 @@ def load_workbook_from_azure():
     file_stream = io.BytesIO()
     download_stream.readinto(file_stream)
     file_stream.seek(0)
-    
     return openpyxl.load_workbook(file_stream, data_only=True)
 
 
@@ -42,6 +44,7 @@ WORKBOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Career
 
 def load_workbook():
     try:
+        logger.info("Attempting to load workbook from Azure")
         if not os.path.exists(WORKBOOK_PATH):
             print(f"Excel file not found at: {WORKBOOK_PATH}")
             return None
