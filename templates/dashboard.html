@@ -1,0 +1,61 @@
+<!-- dashboard.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Metrics Overview -->
+    <div class="metrics-row row mb-4">
+        {% for category in categories %}
+        <div class="col-md-3">
+            <div class="metric-card">
+                <div class="metric-header">{{ category }}</div>
+                <div class="metric-value" id="value-{{ category|lower|replace(' ', '-') }}">0</div>
+                <div class="metric-trend" id="trend-{{ category|lower|replace(' ', '-') }}">+0%</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Category Navigation -->
+    <div class="category-nav mb-4">
+        <ul class="nav nav-tabs" id="categoryTabs" role="tablist">
+            {% for category in categories %}
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if loop.first %}active{% endif %}" 
+                        id="tab-{{ category|lower|replace(' ', '-') }}" 
+                        data-bs-toggle="tab" 
+                        data-bs-target="#content-{{ category|lower|replace(' ', '-') }}" 
+                        type="button" 
+                        role="tab" 
+                        aria-controls="content-{{ category|lower|replace(' ', '-') }}" 
+                        aria-selected="{% if loop.first %}true{% else %}false{% endif %}">
+                    {{ category }}
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="categoryTabContent">
+        {% for category in categories %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" 
+             id="content-{{ category|lower|replace(' ', '-') }}" 
+             role="tabpanel" 
+             aria-labelledby="tab-{{ category|lower|replace(' ', '-') }}">
+            
+            <div class="chart-card">
+                <h5>{{ category }} Metrics</h5>
+                <!-- This is where the graphs will be displayed in a grid layout -->
+                <div id="graph-{{ category|lower|replace(' ', '-') }}" class="graph-container row"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/graphs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

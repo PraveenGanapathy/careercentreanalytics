@@ -1,0 +1,641 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container card shadow-sm p-4">
+    <h2 class="mb-4 text-center">Career Center Metrics Entry Form</h2>
+    
+    <div id="alert-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+    
+    <form id="metricsForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="form-floating mb-3">
+                    <select name="fiscal_year" id="fiscal-year" class="form-select" required>
+                        {% for year in fiscal_years %}
+                            <option value="{{ year }}">
+                                FY {{ year }}-{{ (year|int) + 1 }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <label for="fiscal-year">Fiscal Year</label>
+                    <span class="data-status" id="fiscal-year-status"></span>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-floating mb-3">
+                    <select name="quarter" id="quarter" class="form-select" required>
+                        <option value="">Select Quarter</option>
+                        {% for quarter in quarters %}
+                            <option value="{{ quarter }}">{{ quarter }}</option>
+                        {% endfor %}
+                    </select>
+                    <label for="quarter">Quarter</label>
+                    <span class="data-status" id="quarter-status"></span>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-floating mb-3">
+                    <select name="category" id="category-select" class="form-select" required>
+                        <option value="">Select Category</option>
+                        {% for category in categories %}
+                            <option value="{{ category }}">{{ category }}</option>
+                        {% endfor %}
+                    </select>
+                    <label for="category-select">Category</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="form-floating">
+                    <input type="date" name="start_date" id="start-date" class="form-control" required>
+                    <label for="start-date">Start Date</label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-floating">
+                    <input type="date" name="end_date" id="end-date" class="form-control" required>
+                    <label for="end-date">End Date</label>
+                </div>
+            </div>
+        </div>
+
+        <div id="metrics-container" class="mt-4">
+            <!-- Metrics will be loaded here dynamically -->
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <button type="button" id="autoFillYear" class="btn btn-outline-info">
+                <i class="bi bi-magic"></i> Auto Fill Values
+            </button>
+            <div>
+                <button type="button" id="reset-btn" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-arrow-counterclockwise"></i> Reset
+                </button>
+                <button type="button" id="submit-btn" class="btn btn-primary px-4">
+                    <span id="submit-text">Submit</span>
+                    <span id="update-text" style="display:none">Update</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Changes Summary Modal -->
+        <div class="modal fade" id="changesSummaryModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Changes</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="changes-summary"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" id="confirm-submit" class="btn btn-primary">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+<style>
+    .form-container {
+        max-width: 1000px;
+        margin: 0 auto;
+    }
+    
+    .data-status {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+    }
+    
+    .metric-row {
+        transition: background-color 0.3s;
+    }
+    
+    .metric-row.changed {
+        background-color: #fff3cd;
+    }
+    
+    .metric-card {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 15px;
+        overflow: hidden;
+    }
+    
+    .metric-card .card-header {
+        background-color: #f8f9fa;
+        font-weight: 500;
+    }
+    
+    .metric-value-input {
+        font-size: 1.1rem;
+        text-align: right;
+    }
+    
+    .metric-group-title {
+        font-size: 1.2rem;
+        margin-bottom: 15px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #dee2e6;
+    }
+    
+    .loading-spinner {
+        display: inline-block;
+        width: 1rem;
+        height: 1rem;
+        border: 0.15em solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spinner-border .75s linear infinite;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Define the fiscal years function
+    function getFiscalYears() {
+        // Get current date
+        const today = new Date();
+        const currentMonth = today.getMonth(); // 0-11 (Jan-Dec)
+        const currentYear = today.getFullYear();
+        
+        // Determine current fiscal year (assuming fiscal year starts in April)
+        let currentFiscalYear;
+        if (currentMonth >= 3) { // April or later
+            currentFiscalYear = currentYear;
+        } else {
+            currentFiscalYear = currentYear - 1;
+        }
+        
+        // Generate fiscal years from 2020 to current
+        const fiscalYears = [];
+        for (let year = 2020; year <= currentFiscalYear; year++) {
+            fiscalYears.push({
+                label: `${year}-${(year + 1).toString().slice(-2)}`, // Format as "2020-21"
+                value: year,
+                startDate: `${year}-04-01`, // April 1st
+                endDate: `${year + 1}-03-31` // March 31st
+            });
+        }
+        
+        return fiscalYears;
+    }
+
+    // Initialize fiscalYearSelect first
+    const fiscalYearSelect = document.getElementById('fiscal-year');
+    
+    // Populate the fiscal year dropdown
+    if (fiscalYearSelect) {
+        const years = getFiscalYears();
+        fiscalYearSelect.innerHTML = '';
+        
+        years.forEach(year => {
+            const option = document.createElement('option');
+            option.value = year.value;
+            option.textContent = `FY ${year.label}`;
+            fiscalYearSelect.appendChild(option);
+        });
+        
+        // Select current fiscal year by default
+        fiscalYearSelect.value = years[years.length - 1].value;
+    }
+
+    // Then define the rest of your variables
+    const quarterSelect = document.getElementById('quarter');
+    const categorySelect = document.getElementById('category-select');
+
+    const startDateInput = document.getElementById('start-date');
+    const endDateInput = document.getElementById('end-date');
+    const metricsContainer = document.getElementById('metrics-container');
+    const submitBtn = document.getElementById('submit-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const autoFillBtn = document.getElementById('autoFillYear');
+    const submitText = document.getElementById('submit-text');
+    const updateText = document.getElementById('update-text');
+    const changesSummaryModal = new bootstrap.Modal(document.getElementById('changesSummaryModal'));
+    const changesSummary = document.getElementById('changes-summary');
+    const confirmSubmitBtn = document.getElementById('confirm-submit');
+    const alertContainer = document.getElementById('alert-container');
+    
+    // Store original values for change detection
+    let originalValues = {};
+    let existingData = false;
+    
+    // Check if data exists for selected parameters
+    function checkExistingData() {
+        const fiscalYear = fiscalYearSelect.value;
+        const quarter = quarterSelect.value;
+        const category = categorySelect.value;
+        
+        if (!fiscalYear || !quarter || !category) return;
+        
+        // Show loading indicator
+        document.getElementById('fiscal-year-status').innerHTML = '<span class="loading-spinner"></span>';
+        document.getElementById('quarter-status').innerHTML = '<span class="loading-spinner"></span>';
+        
+        fetch(`/check_existing_data?fiscal_year=${fiscalYear}&quarter=${quarter}&category=${category}`)
+            .then(response => response.json())
+            .then(data => {
+                existingData = data.exists;
+                
+                // Update status indicators
+                document.getElementById('fiscal-year-status').innerHTML = 
+                    existingData ? '<i class="bi bi-check-circle-fill text-success"></i>' : '';
+                document.getElementById('quarter-status').innerHTML = 
+                    existingData ? '<i class="bi bi-check-circle-fill text-success"></i>' : '';
+                
+                // Update submit button text
+                submitText.style.display = existingData ? 'none' : 'inline';
+                updateText.style.display = existingData ? 'inline' : 'none';
+                
+                // Load existing data if available
+                if (existingData) {
+                    loadExistingData(fiscalYear, quarter, category);
+                } else {
+                    // Clear metrics container if no data exists
+                    loadMetricsForm(category);
+                }
+            })
+            .catch(error => {
+                console.error('Error checking existing data:', error);
+                showAlert('Error checking existing data', 'danger');
+            });
+    }
+    function getFiscalYears() {
+    // Get current date
+    const today = new Date();
+    const currentMonth = today.getMonth(); // 0-11 (Jan-Dec)
+    const currentYear = today.getFullYear();
+    
+    // Determine current fiscal year (assuming fiscal year starts in April)
+    let currentFiscalYear;
+    if (currentMonth >= 3) { // April or later
+        currentFiscalYear = currentYear;
+    } else {
+        currentFiscalYear = currentYear - 1;
+    }
+    
+    // Generate fiscal years from 2020 to current
+    const fiscalYears = [];
+    for (let year = 2020; year <= currentFiscalYear; year++) {
+        fiscalYears.push({
+            label: `${year}-${(year + 1).toString().slice(-2)}`, // Format as "2020-21"
+            value: year,
+            startDate: `${year}-04-01`, // April 1st
+            endDate: `${year + 1}-03-31` // March 31st
+        });
+    }
+    
+    return fiscalYears;
+}
+
+    // Load existing data for the selected parameters
+    function loadExistingData(fiscalYear, quarter, category) {
+        fetch(`/get_existing_data?fiscal_year=${fiscalYear}&quarter=${quarter}&category=${category}`)
+            .then(response => response.json())
+            .then(data => {
+                // Load the metrics form first
+                loadMetricsForm(category, () => {
+                    // Then populate with existing values
+                    data.forEach(item => {
+                        const inputField = document.querySelector(`input[name="metrics_${CSS.escape(item.metric)}"]`);
+                        if (inputField) {
+                            inputField.value = item.value;
+                            // Store original value for change detection
+                            originalValues[item.metric] = item.value;
+                        }
+                    });
+                    
+                    // Set dates if provided
+                    if (data.length > 0 && data[0].start_date) {
+                        startDateInput.value = data[0].start_date;
+                    }
+                    if (data.length > 0 && data[0].end_date) {
+                        endDateInput.value = data[0].end_date;
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading existing data:', error);
+                showAlert('Error loading existing data', 'danger');
+            });
+    }
+    
+    // Load metrics form for the selected category
+    function loadMetricsForm(category, callback) {
+        if (!category) {
+            metricsContainer.innerHTML = '';
+            return;
+        }
+        
+        fetch(`/get_metrics_by_category?category=${category}`)
+            .then(response => response.json())
+            .then(data => {
+                // Group metrics by their group
+                const metricsByGroup = {};
+                data.forEach(metric => {
+                    const group = metric.group || 'Other';
+                    if (!metricsByGroup[group]) {
+                        metricsByGroup[group] = [];
+                    }
+                    metricsByGroup[group].push(metric.name);
+                });
+                
+                // Generate HTML for metrics
+                let html = '';
+                Object.entries(metricsByGroup).forEach(([group, metrics]) => {
+                    html += `
+                    <div class="metric-group-container mb-4">
+                        <h5 class="metric-group-title">${group}</h5>
+                        <div class="row">
+                    `;
+                    
+                    metrics.forEach(metric => {
+                        html += `
+<div class="col-md-6 mb-3">
+    <div class="metric-card">
+        <div class="card-header py-2">${metric}</div>
+        <div class="card-body">
+            <div class="input-group">
+                <span class="input-group-text">Value</span>
+                <input type="number" 
+                       name="metrics_${metric}" 
+                       class="form-control metric-value-input" 
+                       step="0.01"
+                       placeholder="Enter value"
+                       data-metric="${metric}">
+            </div>
+        </div>
+    </div>
+</div>
+`;
+                    });
+                    
+                    html += `
+                        </div>
+                    </div>
+                    `;
+                });
+                
+                metricsContainer.innerHTML = html;
+                
+// Initialize change detection
+document.querySelectorAll('.metric-value-input').forEach(input => {
+    const metric = input.dataset.metric;
+    input.addEventListener('input', function() {
+        const isChanged = this.value !== (originalValues[metric] || '');
+        this.closest('.metric-card').classList.toggle('changed', isChanged);
+    });
+});
+
+                
+                if (callback) callback();
+            })
+            .catch(error => {
+                console.error('Error loading metrics:', error);
+                showAlert('Error loading metrics', 'danger');
+            });
+    }
+    
+    // Auto-fill dates based on quarter selection
+    function updateDates() {
+        const quarter = quarterSelect.value;
+        const fiscalYear = parseInt(fiscalYearSelect.value);
+        
+        if (!quarter || !fiscalYear) return;
+        
+        let startDate, endDate;
+        
+        switch(quarter) {
+            case 'Q1': // July-September
+                startDate = `${fiscalYear}-07-01`;
+                endDate = `${fiscalYear}-09-30`;
+                break;
+            case 'Q2': // October-December
+                startDate = `${fiscalYear}-10-01`;
+                endDate = `${fiscalYear}-12-31`;
+                break;
+            case 'Q3': // January-March
+                startDate = `${fiscalYear + 1}-01-01`;
+                endDate = `${fiscalYear + 1}-03-31`;
+                break;
+            case 'Q4': // April-June
+                startDate = `${fiscalYear + 1}-04-01`;
+                endDate = `${fiscalYear + 1}-06-30`;
+                break;
+        }
+        
+        if (startDate && endDate) {
+            startDateInput.value = startDate;
+            endDateInput.value = endDate;
+        }
+    }
+    
+    // Show alert message
+    function showAlert(message, type = 'info') {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        alertContainer.appendChild(alert);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            alert.classList.remove('show');
+            setTimeout(() => alert.remove(), 150);
+        }, 5000);
+    }
+    
+    // Generate summary of changes
+    function generateChangesSummary() {
+        const changes = {
+            new: [],
+            updated: [],
+            unchanged: []
+        };
+        
+        document.querySelectorAll('.metric-value-input').forEach(input => {
+            const metric = input.dataset.metric;
+            const currentValue = input.value.trim();
+            const originalValue = originalValues[metric] || '';
+            
+            if (currentValue === '') return; // Skip empty values
+            
+            if (originalValue === '') {
+                changes.new.push({ metric, value: currentValue });
+            } else if (currentValue !== originalValue) {
+                changes.updated.push({ 
+                    metric, 
+                    oldValue: originalValue, 
+                    newValue: currentValue 
+                });
+            } else {
+                changes.unchanged.push({ metric, value: currentValue });
+            }
+        });
+        
+        let html = '';
+        
+        if (changes.new.length > 0) {
+            html += '<h6 class="text-success">New Values:</h6><ul>';
+            changes.new.forEach(item => {
+                html += `<li>${item.metric}: ${item.value}</li>`;
+            });
+            html += '</ul>';
+        }
+        
+        if (changes.updated.length > 0) {
+            html += '<h6 class="text-warning">Updated Values:</h6><ul>';
+            changes.updated.forEach(item => {
+                html += `<li>${item.metric}: ${item.oldValue} → ${item.newValue}</li>`;
+            });
+            html += '</ul>';
+        }
+        
+        if (changes.unchanged.length > 0) {
+            html += '<h6 class="text-secondary">Unchanged Values:</h6><ul>';
+            changes.unchanged.forEach(item => {
+                html += `<li>${item.metric}: ${item.value}</li>`;
+            });
+            html += '</ul>';
+        }
+        
+        return html;
+    }
+    
+    function submitForm() {
+    const formData = new FormData(document.getElementById('metricsForm'));
+    
+    // Add action parameter
+    formData.append('action', existingData ? 'update' : 'create');
+    
+    fetch('{{ url_for("form") }}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'  // Add this to indicate AJAX request
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showAlert(data.message, 'success');
+            
+            // Reset form or update status
+            if (!existingData) {
+                resetForm();
+            } else {
+                // Update original values
+                document.querySelectorAll('.metric-value-input').forEach(input => {
+                    const metric = input.dataset.metric;
+                    originalValues[metric] = input.value;
+                    input.closest('.metric-card').classList.remove('changed');
+                });
+                
+                // Update status indicators
+                document.getElementById('fiscal-year-status').innerHTML = 
+                    '<i class="bi bi-check-circle-fill text-success"></i>';
+                document.getElementById('quarter-status').innerHTML = 
+                    '<i class="bi bi-check-circle-fill text-success"></i>';
+            }
+        } else {
+            showAlert(data.message || 'Error submitting form', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error submitting form:', error);
+        showAlert('Error submitting form', 'danger');
+    });
+}
+
+    
+// Reset form
+function resetForm() {
+document.getElementById('metricsForm').reset();
+metricsContainer.innerHTML = '';
+originalValues = {};
+existingData = false;
+document.getElementById('fiscal-year-status').innerHTML = '';
+document.getElementById('quarter-status').innerHTML = '';
+submitText.style.display = 'inline';
+updateText.style.display = 'none';
+}
+    // Auto fill values
+    function autoFillValues() {
+        const metricInputs = document.querySelectorAll('.metric-value-input');
+        
+        metricInputs.forEach(input => {
+            if (!input.value) {
+                input.value = (Math.random() * 100).toFixed(2);
+                // Trigger change event to update highlighting
+                const event = new Event('input', { bubbles: true });
+                input.dispatchEvent(event);
+            }
+        });
+    }
+    
+    // Event Listeners
+    fiscalYearSelect.addEventListener('change', function() {
+        updateDates();
+        checkExistingData();
+    });
+    
+    quarterSelect.addEventListener('change', function() {
+        updateDates();
+        checkExistingData();
+    });
+    
+    categorySelect.addEventListener('change', function() {
+        checkExistingData();
+    });
+    
+    submitBtn.addEventListener('click', function() {
+        // Generate changes summary
+        const summaryHtml = generateChangesSummary();
+        changesSummary.innerHTML = summaryHtml;
+        
+        // Show confirmation modal
+        changesSummaryModal.show();
+    });
+    
+    confirmSubmitBtn.addEventListener('click', function() {
+        changesSummaryModal.hide();
+        submitForm();
+    });
+    
+    resetBtn.addEventListener('click', resetForm);
+    //dev auto populate button
+    // autoFillBtn.addEventListener('click', autoFillValues);
+});
+</script> {% endblock %}
