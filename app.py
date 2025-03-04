@@ -22,7 +22,7 @@ connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
 container_name = os.getenv('AZURE_CONTAINER_NAME')
 blob_name = os.getenv('AZURE_BLOB_NAME')
 
-def load_workbook_from_azure():
+def load_workbook():
     blob_service_client = BlobServiceClient.from_connection_string(connection_string)
     container_client = blob_service_client.get_container_client(container_name)
     blob_client = container_client.get_blob_client(blob_name)
@@ -42,21 +42,21 @@ csrf = CSRFProtect(app)
 # Modify the WORKBOOK_PATH to ensure proper file location
 WORKBOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CareerCenterMetrics.xlsx")
 
-def load_workbook():
-    try:
-        logger.info("Attempting to load workbook from Azure")
-        if not os.path.exists(WORKBOOK_PATH):
-            print(f"Excel file not found at: {WORKBOOK_PATH}")
-            return None
-        return openpyxl.load_workbook(WORKBOOK_PATH, data_only=True)
-    except Exception as e:
-        print(f"Error loading workbook: {str(e)}")
-        return None
+# def load_workbook():
+#     try:
+#         logger.info("Attempting to load workbook from Azure")
+#         if not os.path.exists(WORKBOOK_PATH):
+#             print(f"Excel file not found at: {WORKBOOK_PATH}")
+#             return None
+#         return openpyxl.load_workbook(WORKBOOK_PATH, data_only=True)
+#     except Exception as e:
+#         print(f"Error loading workbook: {str(e)}")
+#         return None
 
 
 def get_metrics_and_categories():
     try:
-        wb = load_workbook_from_azure()
+        wb = load_workbook()
         if not wb:
             return {}, {}
             
