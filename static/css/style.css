@@ -271,3 +271,16 @@
     gap: 20px;
     margin-bottom: 30px;
 }
+.quarter-row {
+    background-color: #f8f9fa;
+    font-size: 0.9em;
+}
+
+.metric-main-row {
+    background-color: #ffffff;
+    border-top: 2px solid #dee2e6;
+}
+
+.metric-main-row:first-child {
+    border-top: none;
+}

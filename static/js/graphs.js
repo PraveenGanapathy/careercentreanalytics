@@ -55,7 +55,6 @@ function loadData() {
                     metricGroups[metric] = "Default";
                 });
             }
-            
             const years = [...new Set(data.map(d => d.fiscal_year))].sort();
             setupYearSelector(years);
             updateGraphs();
@@ -624,8 +623,10 @@ function createYearlyGraph(containerId, data) {
             
             // Group by metric groups
             const metricGroups = {};
+            
             categoryData.forEach(d => {
                 const group = metricGroups[d.metric] || "Default";
+                //console.log(group);
                 if (!metricGroups[group]) {
                     metricGroups[group] = [];
                 }
@@ -634,6 +635,7 @@ function createYearlyGraph(containerId, data) {
             
             // Calculate scores for each group
             const groupScores = [];
+            //console.log(metricGroups,Object.keys(metricGroups));
             const groupCount = Object.keys(metricGroups).length;
             const weightPerGroup = 100 / groupCount; // Equal weight distribution
             
@@ -648,6 +650,7 @@ function createYearlyGraph(containerId, data) {
                     const target = prevValue * 1.05; // Target is previous + 5%
                     const achievement = target > 0 ? (d.value / target) : 0;
                     totalAchievement += Math.min(achievement, 1); // Cap at 100%
+                    //console.log(d.metric, d.value, prevValue, target, achievement, totalAchievement,currentYearData.length,weightPerGroup);
                 });
                 
                 // Calculate group score
@@ -713,6 +716,7 @@ function createYearlyGraph(containerId, data) {
     const selectedYear = document.getElementById('fiscalYearSelect').value;
     const previousYear = String(parseInt(selectedYear) - 1);
     const categoryData = metricsData.filter(d => d.category === category);
+    //console.log(categoryData,"-----");
     
 //modal html
     const modalHtml = `
@@ -765,16 +769,21 @@ function createYearlyGraph(containerId, data) {
         const metrics = [...new Set(data.map(d => d.metric))];
         
         return metrics.map(metric => {
-            const currentValue = data.find(d => d.fiscal_year === selectedYear && d.metric === metric)?.value || 0;
-            const previousValue = data.find(d => d.fiscal_year === previousYear && d.metric === metric)?.value ?? 0;
-
+            // Get all entries for this metric in the selected year and previous year
+            const currentYearEntries = data.filter(d => d.fiscal_year === selectedYear && d.metric === metric);
+            const previousYearEntries = data.filter(d => d.fiscal_year === previousYear && d.metric === metric);
+            
+            // Sum up values across all quarters for each year
+            const currentValue = currentYearEntries.reduce((sum, entry) => sum + (parseFloat(entry.value) || 0), 0);
+            const previousValue = previousYearEntries.reduce((sum, entry) => sum + (parseFloat(entry.value) || 0), 0);
+            
             // Calculate target as previous year + 5%
             const target = previousValue * 1.05;
             
             // Calculate achievement percentage
             const achievement = target > 0 ? (currentValue / target) * 100 : 0;
             
-            
+            // Determine trend
             let trendSymbol = '';
             let trendClass = '';
             
@@ -789,6 +798,11 @@ function createYearlyGraph(containerId, data) {
                 trendClass = 'trend-constant';
             }
             
+            // Calculate percent change, handling division by zero
+            const percentChange = previousValue !== 0 ? 
+                ((currentValue - previousValue) / previousValue) * 100 : 
+                (currentValue > 0 ? 100 : 0);
+            
             return `
             <tr>
                 <td>${metric}</td>
@@ -796,45 +810,47 @@ function createYearlyGraph(containerId, data) {
                 <td>${previousValue.toFixed(2)}</td>
                 <td>${target.toFixed(2)}</td>
                 <td>${achievement.toFixed(1)}%</td>
-                <td class="${trendClass}">${trendSymbol} ${Math.abs(((currentValue - previousValue) / (previousValue || 1) * 100)).toFixed(1)}%</td>
+                <td class="${trendClass}">${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</td>
             </tr>
             `;
         }).join('');
     }
+    
     function showMetricGroupDetailsTable(groupName, metrics) {
         
         const selectedYear = document.getElementById('fiscalYearSelect').value;
         const previousYear = String(parseInt(selectedYear) - 1);
         // Create modal HTML
         const modalHtml = `
-        <div class="modal fade" id="metricGroupDetailModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">${groupName} Details</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Metric</th>
-                                    <th>Current Value (${selectedYear})</th>
-                                    <th>Previous Value (${previousYear})</th>
-                                    <th>Target (Prev+5%)</th>
-                                    <th>Achievement</th>
-                                    <th>Trend</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${generateMetricGroupTableRows(metrics, selectedYear)}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+<div class="modal fade" id="metricGroupDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">${groupName} Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Current Value (${selectedYear})</th>
+                            <th>Previous Value (${previousYear})</th>
+                            <th>Target (Prev+5%)</th>
+                            <th>Achievement</th>
+                            <th>Trend</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${generateMetricGroupTableRows(metrics, selectedYear)}
+                    </tbody>
+                </table>
             </div>
         </div>
-        `;
+    </div>
+</div>
+`;
+
         
         // Add modal to DOM and show it
         const modalContainer = document.createElement('div');
@@ -852,22 +868,18 @@ function createYearlyGraph(containerId, data) {
     
     function generateMetricGroupTableRows(metrics, selectedYear) {
         const previousYear = String(parseInt(selectedYear) - 1);
-        
+        const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
         
         return metrics.map(metric => {
             // Calculate current and previous year totals
-            const currentTotal = metric.currentYear.reduce((sum, q) => sum + q.value, 0);
-            const previousTotal = metric.previousYear.reduce((sum, q) => sum + q.value, 0);
+            const currentTotal = metric.currentYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
+            const previousTotal = metric.previousYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
             const targetTotal = previousTotal * 1.05;
             
             // Calculate achievement percentage
             const achievement = targetTotal > 0 ? (currentTotal / targetTotal) * 100 : 0;
-            //const targetTotal = metric.currentYear.reduce((sum, q) => sum + (q.target || 0), 0);
-            //console.log(metrics);
-            // Calculate achievement percentage
-            //const achievement = targetTotal > 0 ? (currentTotal / targetTotal) * 100 : 0;
             
-            // Determine trend
+            // Determine trend for total
             let trendSymbol = '';
             let trendClass = '';
             
@@ -882,22 +894,71 @@ function createYearlyGraph(containerId, data) {
                 trendClass = 'trend-constant';
             }
             
-            // Calculate percent change
+            // Calculate percent change for total
             const percentChange = previousTotal > 0 ? 
                 ((currentTotal - previousTotal) / previousTotal) * 100 : 0;
             
+            // Create quarterly breakdown rows
+            let quarterRows = '';
+            quarters.forEach((quarter, index) => {
+                const currentQuarterValue = parseFloat(metric.currentYear[index]?.value || 0);
+                const previousQuarterValue = parseFloat(metric.previousYear[index]?.value || 0);
+                
+                // Calculate target for this quarter (previous quarter value + 5%)
+                const quarterTarget = previousQuarterValue * 1.05;
+                
+                // Calculate achievement for this quarter
+                const quarterAchievement = quarterTarget > 0 ? 
+                    (currentQuarterValue / quarterTarget) * 100 : 0;
+                
+                // Determine trend for this quarter
+                let quarterTrendSymbol = '';
+                let quarterTrendClass = '';
+                
+                if (currentQuarterValue > previousQuarterValue) {
+                    quarterTrendSymbol = '▲';
+                    quarterTrendClass = 'trend-up';
+                } else if (currentQuarterValue < previousQuarterValue) {
+                    quarterTrendSymbol = '▼';
+                    quarterTrendClass = 'trend-down';
+                } else {
+                    quarterTrendSymbol = '►';
+                    quarterTrendClass = 'trend-constant';
+                }
+                
+                // Calculate percent change for this quarter
+                const quarterPercentChange = previousQuarterValue > 0 ? 
+                    ((currentQuarterValue - previousQuarterValue) / previousQuarterValue) * 100 : 
+                    (currentQuarterValue > 0 ? 100 : 0);
+                
+                quarterRows += `
+                <tr class="quarter-row">
+                    <td class="ps-4"><em>${quarter}</em></td>
+                    <td>${currentQuarterValue.toFixed(2)}</td>
+                    <td>${previousQuarterValue.toFixed(2)}</td>
+                    <td>${quarterTarget.toFixed(2)}</td>
+                    <td>${quarterAchievement.toFixed(1)}%</td>
+                    <td class="${quarterTrendClass}">${quarterTrendSymbol} ${Math.abs(quarterPercentChange).toFixed(1)}%</td>
+                </tr>
+                `;
+            });
+            
+            // Main row with totals
             return `
-            <tr>
-                <td>${metric.metric}</td>
-                <td>${currentTotal.toFixed(2)}</td>
-                <td>${previousTotal.toFixed(2)}</td>
-                <td>${targetTotal.toFixed(2)}</td>
-                <td>${achievement.toFixed(1)}%</td>
-                <td class="${trendClass}">${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</td>
+            <tr class="metric-main-row">
+                <td><strong>${metric.metric}</strong></td>
+                <td><strong>${currentTotal.toFixed(2)}</strong></td>
+                <td><strong>${previousTotal.toFixed(2)}</strong></td>
+                <td><strong>${targetTotal.toFixed(2)}</strong></td>
+                <td><strong>${achievement.toFixed(1)}%</strong></td>
+                <td class="${trendClass}"><strong>${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</strong></td>
             </tr>
+            ${quarterRows}
             `;
         }).join('');
     }
+    
+    
     
     
     function getQuarterMonth(quarter) {
