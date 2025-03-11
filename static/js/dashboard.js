@@ -1,6 +1,7 @@
-// Global variables
+//dashboard.js
+// // Global variables
 let currentView = 'quarter';
-let metricsData = [];
+let metricsData2 = [];
 let metricGroups = {};
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -23,7 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Store data globally
-            metricsData = data;
+            metricsData2 = data;
             
             // Extract metric groups from data
             extractMetricGroups(data);
@@ -91,15 +92,15 @@ function setupYearSelector(years) {
 }
 
 function updateGraphs() {
-    if (!metricsData.length || Object.keys(metricGroups).length === 0) return;
+    if (!metricsData2.length || Object.keys(metricGroups).length === 0) return;
     
     const selectedYear = document.getElementById('fiscalYearSelect')?.value || 
-                         [...new Set(metricsData.map(d => d.fiscal_year))].sort().pop();
+                         [...new Set(metricsData2.map(d => d.fiscal_year))].sort().pop();
     
-    const categories = [...new Set(metricsData.map(d => d.category))];
+    const categories = [...new Set(metricsData2.map(d => d.category))];
     
     categories.forEach(category => {
-        const categoryData = metricsData.filter(d => d.category === category);
+        const categoryData = metricsData2.filter(d => d.category === category);
         if (categoryData.length > 0) {
             // Get the container for this category
             const containerId = `graph-${category.toLowerCase().replace(/\s+/g, '-')}`;
@@ -220,26 +221,11 @@ function processYearlyData(data, selectedYear) {
 function createQuarterlyGraph(containerId, data) {
     if (!data?.metrics?.length) return;
 
-    const margin = { top: 20, right: 80, bottom: 50, left: 60 };
-    const width = 500 - margin.left - margin.right;
-    const height = 250 - margin.top - margin.bottom;
+    const { svg, margin } = setupSVG(containerId, 500, 250);
 
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    
-    container.innerHTML = '';
-
-    const svg = d3.select(`#${containerId}`)
-        .append('svg')
-        .attr('width', width + margin.left + margin.right)
-        .attr('height', height + margin.top + margin.bottom)
-        .append('g')
-        .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    // Create scales
     const x = d3.scalePoint()
         .domain(['Q1', 'Q2', 'Q3', 'Q4'])
-        .range([0, width])
+        .range([0, 500 - margin.left - margin.right])
         .padding(0.5);
 
     const allValues = data.metrics.reduce((acc, m) => {
@@ -251,39 +237,17 @@ function createQuarterlyGraph(containerId, data) {
 
     const y = d3.scaleLinear()
         .domain([0, Math.max(...allValues, 1) * 1.1])
-        .range([height, 0]);
+        .range([250 - margin.top - margin.bottom, 0]);
 
-    // Add grid
     svg.append('g')
-        .attr('class', 'grid')
-        .call(d3.axisLeft(y)
-            .tickSize(-width)
-            .tickFormat('')
-        );
-
-    // Add axes
-    svg.append('g')
-        .attr('transform', `translate(0,${height})`)
+        .attr('transform', `translate(0,${250 - margin.top - margin.bottom})`)
         .call(d3.axisBottom(x));
 
     svg.append('g')
         .call(d3.axisLeft(y));
 
-    // Create generators
-    const area = d3.area()
-        .x(d => x(d.quarter))
-        .y0(height)
-        .y1(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-
-    const line = d3.line()
-        .x(d => x(d.quarter))
-        .y(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-
     const color = d3.scaleOrdinal(d3.schemeCategory10);
 
-    // Draw graphs for each metric
     data.metrics.forEach((metricData, i) => {
         const metricGroup = svg.append('g')
             .attr('class', `metric-group-${i}`);
@@ -292,7 +256,12 @@ function createQuarterlyGraph(containerId, data) {
         metricGroup.append('path')
             .datum(metricData.previousYear)
             .attr('class', 'area')
-            .attr('d', area)
+            .attr('d', d3.area()
+                .x(d => x(d.quarter))
+                .y0(250 - margin.top - margin.bottom)
+                .y1(d => y(d.value))
+                .curve(d3.curveMonotoneX)
+            )
             .style('fill', color(i))
             .style('opacity', 0.2)
             .on('mouseover', function(event) {
@@ -315,7 +284,11 @@ function createQuarterlyGraph(containerId, data) {
         metricGroup.append('path')
             .datum(metricData.currentYear)
             .attr('class', 'line')
-            .attr('d', line)
+            .attr('d', d3.line()
+                .x(d => x(d.quarter))
+                .y(d => y(d.value))
+                .curve(d3.curveMonotoneX)
+            )
             .style('stroke', color(i))
             .style('fill', 'none')
             .style('stroke-width', 2);
@@ -350,39 +323,25 @@ function createQuarterlyGraph(containerId, data) {
     });
 }
 
+
 function createYearlyGraph(containerId, data) {
     if (!data?.metrics?.length) return;
 
-    const margin = { top: 20, right: 80, bottom: 50, left: 60 };
-    const width = 500 - margin.left - margin.right;
-    const height = 250 - margin.top - margin.bottom;
-
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    
-    container.innerHTML = '';
-
-    const svg = d3.select(`#${containerId}`)
-        .append('svg')
-        .attr('width', width + margin.left + margin.right)
-        .attr('height', height + margin.top + margin.bottom)
-        .append('g')
-        .attr('transform', `translate(${margin.left},${margin.top})`);
+    const { svg, margin } = setupSVG(containerId, 500, 250);
 
     const years = [...new Set(data.metrics.flatMap(m => m.values.map(v => v.year)))].sort();
     
     const x = d3.scaleBand()
         .domain(years)
-        .range([0, width])
+        .range([0, 500 - margin.left - margin.right])
         .padding(0.1);
 
     const y = d3.scaleLinear()
         .domain([0, d3.max(data.metrics, m => d3.max(m.values, v => v.value)) * 1.1])
-        .range([height, 0]);
+        .range([250 - margin.top - margin.bottom, 0]);
 
-    // Add axes
     svg.append('g')
-        .attr('transform', `translate(0,${height})`)
+        .attr('transform', `translate(0,${250 - margin.top - margin.bottom})`)
         .call(d3.axisBottom(x));
 
     svg.append('g')
@@ -390,64 +349,52 @@ function createYearlyGraph(containerId, data) {
 
     const color = d3.scaleOrdinal(d3.schemeCategory10);
 
-    // Group bars by year
     years.forEach((year, yearIndex) => {
         const yearData = data.metrics.map(m => ({
             metric: m.metric,
             value: m.values.find(v => v.year === year)?.value || 0
         }));
 
-        // Calculate bar width based on number of metrics
         const barWidth = x.bandwidth() / yearData.length;
 
-        // Create bars for each metric in this year
         yearData.forEach((d, i) => {
-            svg.append('rect')
+            const bar = svg.append('rect')
                 .attr('x', x(year) + i * barWidth)
                 .attr('y', y(d.value))
                 .attr('width', barWidth)
-                .attr('height', height - y(d.value))
-                .style('fill', color(i))
-                .on('mouseover', function(event) {
-                    d3.select(this)
-                        .style('opacity', 0.8)
-                        .style('transition', 'opacity 0.2s');
-                    showTooltip(event, {
-                        metric: d.metric,
-                        year: year,
-                        value: d.value
-                    });
-                })
-                .on('mouseout', function() {
-                    d3.select(this)
-                        .style('opacity', 1);
-                    hideTooltip();
-                });
+                .attr('height', 250 - margin.top - margin.bottom - y(d.value))
+                .style('fill', color(i));
+
+            handleMouseEvents(bar, {
+                metric: d.metric,
+                year: year,
+                value: d.value
+            });
         });
     });
 
     // Add legend
     const legend = svg.append('g')
         .attr('class', 'legend')
-        .attr('transform', `translate(${width + 10}, 0)`);
+        .attr('transform', `translate(${500 - margin.left - margin.right + 10}, 0)`);
 
+    data.metrics.forEach((metricData, i) => {
+        const legendItem = legend.append('g')
+            .attr('transform', `translate(0, ${i * 20})`);
 
-data.metrics.forEach((metricData, i) => {
-    const legendItem = legend.append('g')
-        .attr('transform', `translate(0, ${i * 20})`);
+        legendItem.append('rect')
+            .attr('width', 10)
+            .attr('height', 10)
+            .style('fill', color(i));
 
-    legendItem.append('rect')
-        .attr('width', 10)
-        .attr('height', 10)
-        .style('fill', color(i));
-
-    legendItem.append('text')
-        .attr('x', 15)
-        .attr('y', 9)
-        .text(metricData.metric)
-        .style('font-size', '10px');
-});
+        legendItem.append('text')
+            .attr('x', 15)
+            .attr('y', 9)
+            .text(metricData.metric)
+            .style('font-size', '10px');
+    });
 }
+
 
 function showTooltip(event, data) {
 const tooltip = d3.select('body').append('div')
@@ -514,7 +461,30 @@ const quarterMap = {
 };
 return quarterMap[quarter] || 0;
 }
+function setupSVG(containerId, width, height, margin = { top: 20, right: 80, bottom: 50, left: 60 }) {
+    const svg = d3.select(`#${containerId}`)
+        .append('svg')
+        .attr('width', width + margin.left + margin.right)
+        .attr('height', height + margin.top + margin.bottom)
+        .append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+    return { svg, margin };
+}
 
+function handleMouseEvents(element, data) {
+    element
+        .on('mouseover', function(event) {
+            d3.select(this)
+                .style('opacity', 0.8)
+                .style('transition', 'opacity 0.2s');
+            showTooltip(event, data);
+        })
+        .on('mouseout', function() {
+            d3.select(this)
+                .style('opacity', 1);
+            hideTooltip();
+        });
+}
 
 
 // Generate table rows for metric details

@@ -1,5 +1,6 @@
+// graph.js
 // Global variables
-let currentView = 'quarter';
+let currentView1 = 'quarter';
 let metricsData = [];
 let metricGroups = {};
 
@@ -17,7 +18,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function switchView(view) {
-    currentView = view;
+    currentView1 = view;
     document.getElementById('quarterView').classList.toggle('active', view === 'quarter');
     document.getElementById('yearView').classList.toggle('active', view === 'year');
     if (metricsData.length > 0) {
@@ -125,7 +126,7 @@ function updateGraphs() {
                     container.appendChild(groupContainer);
                     
                     // Create the graph
-                    if (currentView === 'year') {
+                    if (currentView1 === 'year') {
                         createYearlyGraph(graphContainer.id, processYearlyData(groupData));
                     } else {
                         createQuarterlyGraph(graphContainer.id, processQuarterlyData(groupData, selectedYear));
@@ -916,7 +917,8 @@ function createYearlyGraph(containerId, data) {
                 let totalAchievement = 0;
                 currentYearData.forEach(d => {
                     const prevValue = previousYearData.find(p => p.metric === d.metric)?.value || 0;
-                    const target = prevValue * 1.05; // Target is previous + 5%
+                    const target = prevValue>0?prevValue * 1.05:0.05;
+                    // Target is previous + 5%
                     const achievement = target > 0 ? (d.value / target) : 0;
                     totalAchievement += Math.min(achievement, 1); // Cap at 100%
                     //console.log(d.metric, d.value, prevValue, target, achievement, totalAchievement,currentYearData.length,weightPerGroup);
@@ -1047,7 +1049,8 @@ function createYearlyGraph(containerId, data) {
             const previousValue = previousYearEntries.reduce((sum, entry) => sum + (parseFloat(entry.value) || 0), 0);
             
             // Calculate target as previous year + 5%
-            const target = previousValue * 1.05;
+            const target = previousValue>0?previousValue * 1.05:0.05;
+            
             
             // Calculate achievement percentage
             const achievement = target > 0 ? (currentValue / target) * 100 : 0;
@@ -1098,8 +1101,8 @@ function createYearlyGraph(containerId, data) {
                 <h5 class="modal-title">${groupName} Details</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <table class="table">
+            <div class="table-responsive modal-body">
+                <table class=" table">
                     <thead>
                         <tr>
                             <th>Metric</th>
@@ -1146,7 +1149,9 @@ function createYearlyGraph(containerId, data) {
             // Calculate current and previous year totals
             const currentTotal = metric.currentYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
             const previousTotal = metric.previousYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
-            const targetTotal = previousTotal * 1.05;
+
+            const targetTotal = previousTotal > 0 ? previousTotal * 1.05 : 0.05;
+            //console.log(currentTotal,previousTotal,targetTotal);
             
             // Calculate achievement percentage
             const achievement = targetTotal > 0 ? (currentTotal / targetTotal) * 100 : 0;
@@ -1168,8 +1173,8 @@ function createYearlyGraph(containerId, data) {
             
             // Calculate percent change for total
             const percentChange = previousTotal > 0 ? 
-                ((currentTotal - previousTotal) / previousTotal) * 100 : 0;
-            
+                ((currentTotal - previousTotal) / previousTotal) * 100 : (currentTotal > 0 ? 100 : 0);
+                
             // Create quarterly breakdown rows
         // Create quarterly breakdown rows
         let quarterRows = '';
@@ -1177,7 +1182,8 @@ function createYearlyGraph(containerId, data) {
             const previousQuarterValue = previousYear.find(d => d.quarter === quarterData.quarter)?.quarterValue || 0;
             
             // Calculate target for this quarter (previous quarter value + 5%)
-            const quarterTarget = previousQuarterValue * 1.05;
+            //const quarterTarget = previousQuarterValue * 1.05;
+            const quarterTarget = previousQuarterValue>0?previousQuarterValue * 1.05:0.05;
             
             // Calculate achievement for this quarter
             const quarterAchievement = quarterTarget > 0 ? 
@@ -1221,8 +1227,8 @@ function createYearlyGraph(containerId, data) {
             <td><strong>${metric.metric}</strong></td>
             <td><strong>${currentYear.reduce((sum, d) => sum + d.quarterValue, 0).toFixed(2)}</strong></td>
             <td><strong>${previousYear.reduce((sum, d) => sum + d.quarterValue, 0).toFixed(2)}</strong></td>
-            <td><strong>${(previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05).toFixed(2)}</strong></td>
-            <td><strong>${((currentYear.reduce((sum, d) => sum + d.quarterValue, 0) / (previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05) || 0) * 100).toFixed(1)}%</strong></td>
+            <td><strong>${(previousYear.reduce((sum, d) => sum + d.quarterValue, 0) > 0 ? (previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05).toFixed(2) : 0.05.toFixed(2))}</strong></td>
+            <td><strong>${((currentYear.reduce((sum, d) => sum + d.quarterValue, 0) / Math.max(previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05, 0.05)) * 100).toFixed(1)}</strong></td>
             <td class="${trendClass}"><strong>${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</strong></td>
         </tr>
         ${quarterRows}

@@ -1,16 +1,13 @@
+//form.js
 function createGraph(category, data) {
-    const margin = {top: 20, right: 30, bottom: 30, left: 60};
+    const margin = { top: 20, right: 30, bottom: 30, left: 60 };
     const width = 500 - margin.left - margin.right;
     const height = 300 - margin.top - margin.bottom;
 
-    d3.select(`#graph-${category.toLowerCase().replace(/\s+/g, '-')}`).html('');
+    const containerId = `graph-${category.toLowerCase().replace(/\s+/g, '-')}`;
+    d3.select(`#${containerId}`).html('');
 
-    const svg = d3.select(`#graph-${category.toLowerCase().replace(/\s+/g, '-')}`)
-        .append('svg')
-        .attr('width', width + margin.left + margin.right)
-        .attr('height', height + margin.top + margin.bottom)
-        .append('g')
-        .attr('transform', `translate(${margin.left},${margin.top})`);
+    const { svg } = setupSVG(containerId, width, height, margin);
 
     const x = d3.scaleTime()
         .domain(d3.extent(data, d => d.date))
