@@ -72,7 +72,7 @@ function setupYearSelector(years) {
     if (!yearSelect) return;
     
     yearSelect.innerHTML = years.map(year => 
-        `<option value="${year}">FY ${year}-${parseInt(year)+1}</option>`
+        `<option value="${year}">AY ${year}-${parseInt(year)+1}</option>`
     ).join('');
     yearSelect.value = years[years.length - 1];
     yearSelect.addEventListener('change', function() {
@@ -166,40 +166,6 @@ function groupDataByMetricGroup(data) {
     return result;
 }
 
-function processQuarterlyData(data, selectedYear) {
-    if (!data || !Array.isArray(data)) return { metrics: [] };
-    
-    const metrics = [...new Set(data.map(d => d.metric))];
-    const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
-    
-    return {
-        metrics: metrics.map(metric => ({
-            metric,
-            currentYear: quarters.map(quarter => {
-                const match = data.find(d => 
-                    d.fiscal_year === selectedYear && 
-                    d.metric === metric && 
-                    d.quarter === quarter
-                );
-                return {
-                    quarter,
-                    value: match ? parseFloat(match.value) : 0
-                };
-            }),
-            previousYear: quarters.map(quarter => {
-                const match = data.find(d => 
-                    d.fiscal_year === String(parseInt(selectedYear) - 1) && 
-                    d.metric === metric && 
-                    d.quarter === quarter
-                );
-                return {
-                    quarter,
-                    value: match ? parseFloat(match.value) : 0
-                };
-            })
-        }))
-    };
-}
 
 function processYearlyData(data) {
     if (!data || !Array.isArray(data)) return { metrics: [] };
@@ -220,22 +186,95 @@ function processYearlyData(data) {
     };
 }
 
+function processQuarterlyData(data, selectedYear) {
+    if (!data || !Array.isArray(data)) return { metrics: [] };
+    
+    const metrics = [...new Set(data.map(d => d.metric))];
+    const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+    
+    return {
+        metrics: metrics.map(metric => {
+            // Process current year data with cumulative totals
+            let currentYearCumulative = 0;
+            const currentYear = quarters.filter(quarter => {
+                const match = data.find(d => 
+                    d.fiscal_year === selectedYear && 
+                    d.metric === metric && 
+                    d.quarter === quarter
+                );
+                return match !== undefined;
+            }).map(quarter => {
+                const match = data.find(d => 
+                    d.fiscal_year === selectedYear && 
+                    d.metric === metric && 
+                    d.quarter === quarter
+                );
+                const quarterValue = match ? parseFloat(match.value) : 0;
+                currentYearCumulative += quarterValue;
+                
+                return {
+                    quarter,
+                    value: currentYearCumulative,
+                    quarterValue: quarterValue, // Store individual quarter value for tooltips
+                    target: match?.target ? parseFloat(match.target) : 0
+                };
+            });
+            
+            // Process previous year data with cumulative totals
+            let previousYearCumulative = 0;
+            const previousYear = quarters.filter(quarter => {
+                const match = data.find(d => 
+                    d.fiscal_year === String(parseInt(selectedYear) - 1) && 
+                    d.metric === metric && 
+                    d.quarter === quarter
+                );
+                return match !== undefined;
+            }).map(quarter => {
+                const match = data.find(d => 
+                    d.fiscal_year === String(parseInt(selectedYear) - 1) && 
+                    d.metric === metric && 
+                    d.quarter === quarter
+                );
+                const quarterValue = match ? parseFloat(match.value) : 0;
+                previousYearCumulative += quarterValue;
+                
+                return {
+                    quarter,
+                    value: previousYearCumulative,
+                    quarterValue: quarterValue // Store individual quarter value for tooltips
+                };
+            });
+            
+            return {
+                metric,
+                currentYear,
+                previousYear
+            };
+        })
+    };
+}
+
+
 function createQuarterlyGraph(containerId, data) {
     if (!data?.metrics?.length) return;
-
-    const margin = { top: 20, right: 80, bottom: 70, left: 60 };
-    const width = 500 - margin.left - margin.right;
-    const height = 250 - margin.top - margin.bottom;
 
     const container = document.getElementById(containerId);
     if (!container) return;
     
     container.innerHTML = '';
+    
+    // Make the graph responsive
+    const containerWidth = container.clientWidth;
+    const margin = { top: 20, right: 80, bottom: 90, left: 60 };
+    const width = Math.max(300, containerWidth - margin.left - margin.right);
+    const height = 300 - margin.top - margin.bottom;
 
     const svg = d3.select(`#${containerId}`)
         .append('svg')
-        .attr('width', width + margin.left + margin.right)
+        .attr('width', '100%')
         .attr('height', height + margin.top + margin.bottom)
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
         .append('g')
         .attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -271,15 +310,10 @@ function createQuarterlyGraph(containerId, data) {
         .call(d3.axisBottom(x));
 
     svg.append('g')
+        .attr('class', 'y axis')
         .call(d3.axisLeft(y));
 
-    // Create generators
-    const area = d3.area()
-        .x(d => x(d.quarter))
-        .y0(height)
-        .y1(d => y(d.value))
-        .curve(d3.curveMonotoneX);
-
+    // Create line generator
     const line = d3.line()
         .x(d => x(d.quarter))
         .y(d => y(d.value))
@@ -297,30 +331,17 @@ function createQuarterlyGraph(containerId, data) {
         const metricGroup = svg.append('g')
             .attr('class', `metric-group-${i}`);
 
-        // Draw area for previous year
+        // Draw line for previous year (dashed)
         metricGroup.append('path')
             .datum(metricData.previousYear)
-            .attr('class', 'area')
-            .attr('d', area)
-            .style('fill', color(i))
-            .style('opacity', 0.2)
-            .on('mouseover', function(event) {
-                d3.select(this)
-                    .style('opacity', 0.4)
-                    .style('transition', 'opacity 0.2s');
-                showTooltip(event, {
-                    metric: metricData.metric,
-                    year: 'Previous Year',
-                    data: metricData.previousYear
-                });
-            })
-            .on('mouseout', function() {
-                d3.select(this)
-                    .style('opacity', 0.2);
-                hideTooltip();
-            });
+            .attr('class', 'previous-line')
+            .attr('d', line)
+            .style('stroke', color(i))
+            .style('stroke-dasharray', '5,5')
+            .style('fill', 'none')
+            .style('stroke-width', 1.5);
 
-        // Draw line for current year
+        // Draw line for current year (solid)
         metricGroup.append('path')
             .datum(metricData.currentYear)
             .attr('class', 'line')
@@ -334,7 +355,7 @@ function createQuarterlyGraph(containerId, data) {
             metricGroup.append('path')
                 .datum(metricData.currentYear)
                 .attr('class', 'target-line')
-                .attr('d', targetLine)
+                //.attr('d', targetLine)
                 .style('stroke', color(i))
                 .style('stroke-dasharray', '3,3')
                 .style('fill', 'none')
@@ -361,6 +382,8 @@ function createQuarterlyGraph(containerId, data) {
                     metric: metricData.metric,
                     quarter: d.quarter,
                     value: d.value,
+                    quarterValue: d.quarterValue,
+                    cumulative: true,
                     target: d.target
                 });
             })
@@ -369,44 +392,266 @@ function createQuarterlyGraph(containerId, data) {
                     .attr('r', 4);
                 hideTooltip();
             });
+            
+        // Add points for previous year (smaller and hollow)
+        metricGroup.selectAll('.prev-point')
+            .data(metricData.previousYear)
+            .enter()
+            .append('circle')
+            .attr('class', 'prev-point')
+            .attr('cx', d => x(d.quarter))
+            .attr('cy', d => y(d.value))
+            .attr('r', 3)
+            .style('fill', '#fff')
+            .style('stroke', color(i))
+            .style('stroke-width', 1.5)
+            .on('mouseover', function(event, d) {
+                d3.select(this)
+                    .attr('r', 5)
+                    .style('transition', 'r 0.2s');
+                showTooltip(event, {
+                    metric: metricData.metric,
+                    quarter: d.quarter,
+                    value: d.value,
+                    quarterValue: d.quarterValue,
+                    cumulative: true,
+                    previousYear: true
+                });
+            })
+            .on('mouseout', function() {
+                d3.select(this)
+                    .attr('r', 3);
+                hideTooltip();
+            });
     });
 
-    // Add legend below the graph
+    // Add legend below the graph with improved layout
     const legendHeight = 20;
-    const legendWidth = 120;
-    const legendsPerRow = Math.min(data.metrics.length, Math.floor(width / legendWidth));
+    const legendWidth = Math.min(120, width / 2);
+    const legendsPerRow = Math.max(1, Math.floor(width / legendWidth));
     
     const legend = svg.append('g')
         .attr('class', 'legend')
         .attr('transform', `translate(0, ${height + 20})`);
 
-    data.metrics.forEach((metricData, i) => {
-        const row = Math.floor(i / legendsPerRow);
-        const col = i % legendsPerRow;
+    // Add legend for line types first
+    const lineTypeLegend = svg.append('g')
+        .attr('class', 'line-type-legend')
+        .attr('transform', `translate(${width - 200}, ${-margin.top/2})`);
         
-        const legendItem = legend.append('g')
-            .attr('transform', `translate(${col * legendWidth}, ${row * legendHeight})`)
-            .style('cursor', 'pointer')
-            .on('click', function() {
-                // Show detailed modal when legend is clicked
+    // Current year line
+    lineTypeLegend.append('line')
+        .attr('x1', 0)
+        .attr('y1', 0)
+        .attr('x2', 20)
+        .attr('y2', 0)
+        .style('stroke', '#666')
+        .style('stroke-width', 2);
+        
+    lineTypeLegend.append('text')
+        .attr('x', 25)
+        .attr('y', 4)
+        .text('Current Year')
+        .style('font-size', '9px');
+        
+    // Previous year line
+    lineTypeLegend.append('line')
+        .attr('x1', 90)
+        .attr('y1', 0)
+        .attr('x2', 110)
+        .attr('y2', 0)
+        .style('stroke', '#666')
+        .style('stroke-dasharray', '5,5')
+        .style('stroke-width', 1.5);
+        
+    lineTypeLegend.append('text')
+        .attr('x', 115)
+        .attr('y', 4)
+        .text('Previous Year')
+        .style('font-size', '9px');
+
+// Track which metrics are visible
+const visibleMetrics = new Set(data.metrics.map((_, i) => i));
+
+// Add metric legends with toggle functionality
+data.metrics.forEach((metricData, i) => {
+    const row = Math.floor(i / legendsPerRow);
+    const col = i % legendsPerRow;
+    
+    const legendItem = legend.append('g')
+        .attr('transform', `translate(${col * legendWidth}, ${row * legendHeight})`)
+        .style('cursor', 'pointer')
+        .attr('class', 'legend-item')
+        .attr('data-metric-index', i)
+        .on('click', function(event) {
+            // If shift key is pressed, show details modal
+            if (event.shiftKey) {
                 showMetricGroupDetails(metricData.metric);
-            });
+                return;
+            }
+            
+            // Toggle this metric's visibility
+            const metricIndex = i;
+            if (visibleMetrics.has(metricIndex)) {
+                // If this is the only visible metric, don't hide it
+                if (visibleMetrics.size > 1) {
+                    visibleMetrics.delete(metricIndex);
+                    d3.select(this).classed('legend-item-inactive', true);
+                }
+            } else {
+                visibleMetrics.add(metricIndex);
+                d3.select(this).classed('legend-item-inactive', false);
+            }
+            
+            // Update graph based on visible metrics
+            updateVisibleMetrics();
+        })
+        .on('dblclick', function() {
+            // Double-click to show only this metric
+            const metricIndex = i;
+            visibleMetrics.clear();
+            visibleMetrics.add(metricIndex);
+            
+            // Update legend items appearance
+            d3.selectAll('.legend-item').classed('legend-item-inactive', true);
+            d3.select(this).classed('legend-item-inactive', false);
+            
+            // Update graph
+            updateVisibleMetrics();
+        });
 
-        // Add color box
-        legendItem.append('rect')
-            .attr('width', 10)
-            .attr('height', 10)
-            .style('fill', color(i));
+    // Add color box
+    legendItem.append('rect')
+        .attr('width', 10)
+        .attr('height', 10)
+        .style('fill', color(i));
 
-        // Add metric name (truncated if too long)
-        legendItem.append('text')
-            .attr('x', 15)
-            .attr('y', 9)
-            .text(metricData.metric.length > 15 ? 
-                  metricData.metric.substring(0, 15) + '...' : 
-                  metricData.metric)
-            .style('font-size', '10px');
+    // Add metric name (truncated if too long)
+    legendItem.append('text')
+        .attr('x', 15)
+        .attr('y', 9)
+        .text(metricData.metric.length > 15 ? 
+              metricData.metric.substring(0, 15) + '...' : 
+              metricData.metric)
+        .style('font-size', '10px');
+});
+
+// Add "Show All" button to legend
+legend.append('g')
+    .attr('transform', `translate(0, ${Math.ceil(data.metrics.length / legendsPerRow) * legendHeight + 5})`)
+    .style('cursor', 'pointer')
+    .on('click', function() {
+        // Show all metrics
+        visibleMetrics.clear();
+        data.metrics.forEach((_, i) => visibleMetrics.add(i));
+        
+        // Update legend items appearance
+        d3.selectAll('.legend-item').classed('legend-item-inactive', false);
+        
+        // Update graph
+        updateVisibleMetrics();
+    })
+    .append('text')
+    .attr('class', 'show-all-text')
+    .text('Show All')
+    .style('font-size', '10px')
+    .style('font-weight', 'bold')
+    .style('fill', '#007bff');
+
+// Function to update graph based on visible metrics
+function updateVisibleMetrics() {
+    // Hide/show metric groups
+    data.metrics.forEach((_, i) => {
+        const isVisible = visibleMetrics.has(i);
+        svg.select(`.metric-group-${i}`)
+            .style('display', isVisible ? 'block' : 'none');
     });
+    
+    // Recalculate y-axis scale based on visible metrics
+    const visibleValues = [];
+    data.metrics.forEach((metric, i) => {
+        if (visibleMetrics.has(i)) {
+            visibleValues.push(
+                ...metric.currentYear.map(d => d.value),
+                ...metric.previousYear.map(d => d.value),
+                ...metric.currentYear.map(d => d.target || 0)
+            );
+        }
+    });
+    
+    // Update y-axis scale
+    if (visibleValues.length > 0) {
+        y.domain([0, Math.max(...visibleValues, 1) * 1.1]);
+        
+        // Animate transition
+        svg.select('.grid')
+            .transition()
+            .duration(500)
+            .call(d3.axisLeft(y)
+                .tickSize(-width)
+                .tickFormat('')
+            );
+            
+        svg.selectAll('g.y.axis')
+            .transition()
+            .duration(500)
+            .call(d3.axisLeft(y));
+        
+        // Update visible lines and points
+        visibleMetrics.forEach(i => {
+            const metricData = data.metrics[i];
+            const metricGroup = svg.select(`.metric-group-${i}`);
+            
+            // Update current year line
+            metricGroup.select('.line')
+                .transition()
+                .duration(500)
+                .attr('d', line(metricData.currentYear));
+                
+            // Update previous year line
+            metricGroup.select('.previous-line')
+                .transition()
+                .duration(500)
+                .attr('d', line(metricData.previousYear));
+                
+            // Update target line if it exists
+            if (metricData.currentYear.some(d => d.target > 0)) {
+                metricGroup.select('.target-line')
+                    .transition()
+                    .duration(500)
+                    //.attr('d', targetLine(metricData.currentYear));
+            }
+            
+            // Update current year points
+            metricGroup.selectAll('.point')
+                .transition()
+                .duration(500)
+                .attr('cy', d => y(d.value));
+                
+            // Update previous year points
+            metricGroup.selectAll('.prev-point')
+                .transition()
+                .duration(500)
+                .attr('cy', d => y(d.value));
+        });
+    }
+}
+
+// Add CSS for legend items
+const style = document.createElement('style');
+style.textContent = `
+    .legend-item-inactive rect {
+        opacity: 0.3;
+    }
+    .legend-item-inactive text {
+        opacity: 0.5;
+    }
+    .show-all-text:hover {
+        text-decoration: underline;
+    }
+`;
+document.head.appendChild(style);
+
 
     // Add a "View Details" button
     const detailsButton = document.createElement('button');
@@ -417,25 +662,37 @@ function createQuarterlyGraph(containerId, data) {
         showMetricGroupDetailsTable(groupName, data.metrics);
     };
     container.appendChild(detailsButton);
+    
+    // Add resize handler for responsiveness
+    const resizeGraph = function() {
+        const newWidth = container.clientWidth;
+        svg.attr('width', newWidth);
+    };
+    
+    window.addEventListener('resize', resizeGraph);
 }
 
 
 function createYearlyGraph(containerId, data) {
     if (!data?.metrics?.length) return;
 
-    const margin = { top: 20, right: 20, bottom: 80, left: 60 };
-    const width = 500 - margin.left - margin.right;
-    const height = 250 - margin.top - margin.bottom;
-
     const container = document.getElementById(containerId);
     if (!container) return;
     
     container.innerHTML = '';
+    
+    // Make the graph responsive
+    const containerWidth = container.clientWidth;
+    const margin = { top: 20, right: 20, bottom: 90, left: 60 };
+    const width = Math.max(300, containerWidth - margin.left - margin.right);
+    const height = 250 - margin.top - margin.bottom;
 
     const svg = d3.select(`#${containerId}`)
         .append('svg')
-        .attr('width', width + margin.left + margin.right)
+        .attr('width', '100%')
         .attr('height', height + margin.top + margin.bottom)
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
         .append('g')
         .attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -522,6 +779,7 @@ function createYearlyGraph(containerId, data) {
                     .style('fill', '#333')
                     .text(d.value.toFixed(0));
             }
+            
         });
     });
 
@@ -554,6 +812,12 @@ function createYearlyGraph(containerId, data) {
                   metricData.metric)
             .style('font-size', '9px');
     });
+    const resizeGraph = function() {
+        const newWidth = container.clientWidth;
+        svg.attr('width', newWidth);
+    };
+    
+    window.addEventListener('resize', resizeGraph);
 }
 
     
@@ -567,9 +831,14 @@ function createYearlyGraph(containerId, data) {
     
     if (data.quarter) {
         // Quarterly data point
-        content = `
+        const selectedYear = document.getElementById('fiscalYearSelect').value;
+        const yearLabel = data.previousYear ? 
+            `Previous Year (${String(parseInt(selectedYear) - 1)})` : 
+            `Current Year (${selectedYear})`;
+        
+            content = `
             <strong>${data.metric}</strong><br/>
-            Quarter: ${data.quarter}<br/>
+            ${yearLabel}, ${data.quarter}<br/>
             Value: ${data.value.toFixed(2)}
         `;
     } else if (data.year && data.data) {
@@ -872,6 +1141,9 @@ function createYearlyGraph(containerId, data) {
         
         return metrics.map(metric => {
             // Calculate current and previous year totals
+            const currentYear = metric.currentYear.filter(d => d.quarterValue > 0);
+            const previousYear = metric.previousYear.filter(d => d.quarterValue > 0);
+            // Calculate current and previous year totals
             const currentTotal = metric.currentYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
             const previousTotal = metric.previousYear.reduce((sum, q) => sum + (parseFloat(q.value) || 0), 0);
             const targetTotal = previousTotal * 1.05;
@@ -899,64 +1171,64 @@ function createYearlyGraph(containerId, data) {
                 ((currentTotal - previousTotal) / previousTotal) * 100 : 0;
             
             // Create quarterly breakdown rows
-            let quarterRows = '';
-            quarters.forEach((quarter, index) => {
-                const currentQuarterValue = parseFloat(metric.currentYear[index]?.value || 0);
-                const previousQuarterValue = parseFloat(metric.previousYear[index]?.value || 0);
-                
-                // Calculate target for this quarter (previous quarter value + 5%)
-                const quarterTarget = previousQuarterValue * 1.05;
-                
-                // Calculate achievement for this quarter
-                const quarterAchievement = quarterTarget > 0 ? 
-                    (currentQuarterValue / quarterTarget) * 100 : 0;
-                
-                // Determine trend for this quarter
-                let quarterTrendSymbol = '';
-                let quarterTrendClass = '';
-                
-                if (currentQuarterValue > previousQuarterValue) {
-                    quarterTrendSymbol = '▲';
-                    quarterTrendClass = 'trend-up';
-                } else if (currentQuarterValue < previousQuarterValue) {
-                    quarterTrendSymbol = '▼';
-                    quarterTrendClass = 'trend-down';
-                } else {
-                    quarterTrendSymbol = '►';
-                    quarterTrendClass = 'trend-constant';
-                }
-                
-                // Calculate percent change for this quarter
-                const quarterPercentChange = previousQuarterValue > 0 ? 
-                    ((currentQuarterValue - previousQuarterValue) / previousQuarterValue) * 100 : 
-                    (currentQuarterValue > 0 ? 100 : 0);
-                
-                quarterRows += `
-                <tr class="quarter-row">
-                    <td class="ps-4"><em>${quarter}</em></td>
-                    <td>${currentQuarterValue.toFixed(2)}</td>
-                    <td>${previousQuarterValue.toFixed(2)}</td>
-                    <td>${quarterTarget.toFixed(2)}</td>
-                    <td>${quarterAchievement.toFixed(1)}%</td>
-                    <td class="${quarterTrendClass}">${quarterTrendSymbol} ${Math.abs(quarterPercentChange).toFixed(1)}%</td>
-                </tr>
-                `;
-            });
+        // Create quarterly breakdown rows
+        let quarterRows = '';
+        currentYear.forEach((quarterData) => {
+            const previousQuarterValue = previousYear.find(d => d.quarter === quarterData.quarter)?.quarterValue || 0;
             
-            // Main row with totals
-            return `
-            <tr class="metric-main-row">
-                <td><strong>${metric.metric}</strong></td>
-                <td><strong>${currentTotal.toFixed(2)}</strong></td>
-                <td><strong>${previousTotal.toFixed(2)}</strong></td>
-                <td><strong>${targetTotal.toFixed(2)}</strong></td>
-                <td><strong>${achievement.toFixed(1)}%</strong></td>
-                <td class="${trendClass}"><strong>${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</strong></td>
+            // Calculate target for this quarter (previous quarter value + 5%)
+            const quarterTarget = previousQuarterValue * 1.05;
+            
+            // Calculate achievement for this quarter
+            const quarterAchievement = quarterTarget > 0 ? 
+                (quarterData.quarterValue / quarterTarget) * 100 : 0;
+            
+            // Determine trend for this quarter
+            let quarterTrendSymbol = '';
+            let quarterTrendClass = '';
+            
+            if (quarterData.quarterValue > previousQuarterValue) {
+                quarterTrendSymbol = '▲';
+                quarterTrendClass = 'trend-up';
+            } else if (quarterData.quarterValue < previousQuarterValue) {
+                quarterTrendSymbol = '▼';
+                quarterTrendClass = 'trend-down';
+            } else {
+                quarterTrendSymbol = '►';
+                quarterTrendClass = 'trend-constant';
+            }
+            
+            // Calculate percent change for this quarter
+            const quarterPercentChange = previousQuarterValue > 0 ? 
+                ((quarterData.quarterValue - previousQuarterValue) / previousQuarterValue) * 100 : 
+                (quarterData.quarterValue > 0 ? 100 : 0);
+            
+            quarterRows += `
+            <tr class="quarter-row">
+                <td class="ps-4"><em>${quarterData.quarter}</em></td>
+                <td>${quarterData.quarterValue.toFixed(2)}</td>
+                <td>${previousQuarterValue.toFixed(2)}</td>
+                <td>${quarterTarget.toFixed(2)}</td>
+                <td>${quarterAchievement.toFixed(1)}%</td>
+                <td class="${quarterTrendClass}">${quarterTrendSymbol} ${Math.abs(quarterPercentChange).toFixed(1)}%</td>
             </tr>
-            ${quarterRows}
             `;
-        }).join('');
-    }
+        });
+        
+        // Main row with totals
+        return `
+        <tr class="metric-main-row">
+            <td><strong>${metric.metric}</strong></td>
+            <td><strong>${currentYear.reduce((sum, d) => sum + d.quarterValue, 0).toFixed(2)}</strong></td>
+            <td><strong>${previousYear.reduce((sum, d) => sum + d.quarterValue, 0).toFixed(2)}</strong></td>
+            <td><strong>${(previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05).toFixed(2)}</strong></td>
+            <td><strong>${((currentYear.reduce((sum, d) => sum + d.quarterValue, 0) / (previousYear.reduce((sum, d) => sum + d.quarterValue, 0) * 1.05) || 0) * 100).toFixed(1)}%</strong></td>
+            <td class="${trendClass}"><strong>${trendSymbol} ${Math.abs(percentChange).toFixed(1)}%</strong></td>
+        </tr>
+        ${quarterRows}
+        `;
+    }).join('');
+}
     
     
     

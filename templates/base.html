@@ -19,20 +19,22 @@
                 <a class="nav-link" href="{{ url_for('form') }}">Data Entry</a>
             </div>
             <div class="d-flex align-items-center ms-auto">
-                <div class="date-picker me-2">
-                    <select class="form-select form-select-sm" id="fiscalYearSelect">
-                        {% for year in fiscal_years %}
-                            <option value="{{ year }}">FY {{ year }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="view-toggle">
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-light active" id="quarterView">Quarter</button>
-                        <button type="button" class="btn btn-outline-light" id="yearView">Year</button>
+                {% if request.endpoint != 'form' %}
+                    <div class="date-picker me-2">
+                        <select class="form-select form-select-sm" id="fiscalYearSelect">
+                            {% for year in fiscal_years %}
+                                <option value="{{ year }}">AY {{ year }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                </div>
-            </div>
+                    <div class="view-toggle">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-light active" id="quarterView">Quarter</button>
+                            <button type="button" class="btn btn-outline-light" id="yearView">Year</button>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>            
         </div>
     </nav>
     <div style="margin-top: 70px;"></div>

@@ -18,12 +18,12 @@
 
     <!-- Category Navigation -->
     <div class="category-nav mb-4">
-        <ul class="nav nav-tabs" id="categoryTabs" role="tablist">
+        <ul class="nav nav-pills justify-content-center flex-wrap" id="categoryTabs" role="tablist">
             {% for category in categories %}
             <li class="nav-item" role="presentation">
                 <button class="nav-link {% if loop.first %}active{% endif %}" 
                         id="tab-{{ category|lower|replace(' ', '-') }}" 
-                        data-bs-toggle="tab" 
+                        data-bs-toggle="pill" 
                         data-bs-target="#content-{{ category|lower|replace(' ', '-') }}" 
                         type="button" 
                         role="tab" 

@@ -79,7 +79,7 @@ function setupYearSelector(years) {
     years.forEach(year => {
         const option = document.createElement('option');
         option.value = year;
-        option.textContent = `FY ${year}-${parseInt(year)+1}`;
+        option.textContent = `AY ${year}-${parseInt(year)+1}`;
         yearSelect.appendChild(option);
     });
     

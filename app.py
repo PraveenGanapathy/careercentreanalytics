@@ -34,13 +34,27 @@ def load_workbook():
     return openpyxl.load_workbook(file_stream, data_only=True)
 
 
+def save_workbook(wb):
+    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    container_client = blob_service_client.get_container_client(container_name)
+    blob_client = container_client.get_blob_client(blob_name)
+    
+    # Save workbook to a bytes stream
+    file_stream = io.BytesIO()
+    wb.save(file_stream)
+    file_stream.seek(0)
+    
+    # Upload the bytes stream to Azure Storage
+    blob_client.upload_blob(file_stream, overwrite=True)
+
+
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 csrf = CSRFProtect(app)
 
 # Get absolute path to the Excel file, let it  be here for future local Dev.
 # Modify the WORKBOOK_PATH to ensure proper file location
-WORKBOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CareerCenterMetrics.xlsx")
+#WORKBOOK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CareerCenterMetrics.xlsx")
 
 # def load_workbook():
 #     try:
@@ -143,17 +157,28 @@ def form():
                             'message': 'All fields are required!'
                         })
                     
-                    # Process metrics data
-                    metrics_data = []
-                    
+                    # Load previous data for comparison
                     wb = load_workbook()
                     if not wb:
                         return jsonify({
                             'success': False,
-                            'message': 'Could not open the Excel file for writing.'
+                            'message': 'Could not open the Excel file for reading.'
                         })
                         
                     sheet = wb["StagingData"]
+                    
+                    # Get previous values for metrics
+                    previous_values = {}
+                    for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+                        if (row and len(row) >= 6 and 
+                            str(row[0]).strip() == fiscal_year and 
+                            str(row[1]).strip() == quarter and 
+                            str(row[4]).strip() == category):
+                            metric_name = row[5]
+                            previous_values[metric_name] = row[6]
+                    
+                    # Process metrics data
+                    metrics_data = []
                     
                     # If updating, first remove existing entries
                     if action == 'update':
@@ -172,6 +197,7 @@ def form():
                     # Add new entries
                     next_row = sheet.max_row + 1
                     metrics_added = 0
+                    metrics_updated = 0
                     
                     # Get all form fields
                     for key, value in request.form.items():
@@ -184,27 +210,54 @@ def form():
                             start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
                             end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
                             
-                            # Add row to Excel
-                            sheet.cell(row=next_row, column=1).value = fiscal_year
-                            sheet.cell(row=next_row, column=2).value = quarter
-                            sheet.cell(row=next_row, column=3).value = start_date_obj
-                            sheet.cell(row=next_row, column=4).value = end_date_obj
-                            sheet.cell(row=next_row, column=5).value = category
-                            sheet.cell(row=next_row, column=6).value = metric_name
-                            sheet.cell(row=next_row, column=7).value = float(value)
-                            sheet.cell(row=next_row, column=8).value = float(target_value) if target_value.strip() else None
+                            # Check if this metric already exists
+                            existing_row = None
+                            for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+                                if (row and len(row) >= 6 and 
+                                    str(row[0]).strip() == fiscal_year and 
+                                    str(row[1]).strip() == quarter and 
+                                    str(row[4]).strip() == category and 
+                                    str(row[5]).strip() == metric_name):
+                                    existing_row = row_idx
+                                    break
                             
-                            next_row += 1
-                            metrics_added += 1
+                            if existing_row:
+                                # Update existing row
+                                sheet.cell(row=existing_row, column=7).value = float(value)
+                                sheet.cell(row=existing_row, column=8).value = float(target_value) if target_value.strip() else None
+                                metrics_updated += 1
+                            else:
+                                # Add new row
+                                sheet.cell(row=next_row, column=1).value = fiscal_year
+                                sheet.cell(row=next_row, column=2).value = quarter
+                                sheet.cell(row=next_row, column=3).value = start_date_obj
+                                sheet.cell(row=next_row, column=4).value = end_date_obj
+                                sheet.cell(row=next_row, column=5).value = category
+                                sheet.cell(row=next_row, column=6).value = metric_name
+                                sheet.cell(row=next_row, column=7).value = float(value)
+                                sheet.cell(row=next_row, column=8).value = float(target_value) if target_value.strip() else None
+                                
+                                next_row += 1
+                                metrics_added += 1
                     
                     # Save the workbook
-                    wb.save(WORKBOOK_PATH)
+                    save_workbook(wb)
                     
-                    action_text = "updated" if action == "update" else "added"
+                    # Generate update message with previous values
+                    update_message = []
+                    for key, value in request.form.items():
+                        if key.startswith('metrics_'):
+                            metric_name = key[8:]  # Remove 'metrics_' prefix
+                            previous_value = previous_values.get(metric_name, 'N/A')
+                            if not value.strip():
+                                update_message.append(f"{metric_name}: Reset from {previous_value} to empty")
+                            else:
+                                update_message.append(f"{metric_name}: Updated from {previous_value} to {value}")
+                    
                     return jsonify({
                         'success': True,
-                        'message': f'Successfully {action_text} {metrics_added} metrics!',
-                        'metrics_count': metrics_added
+                        'message': 'Changes confirmed: ' + ', '.join(update_message),
+                        'metrics_count': metrics_added + metrics_updated
                     })
                     
                 except Exception as e:
@@ -237,6 +290,17 @@ def form():
                         sheet = wb["StagingData"]
                         next_row = sheet.max_row + 1
                         metrics_added = 0
+                        metrics_updated = 0
+                        
+                        # Load previous values for metrics
+                        previous_values = {}
+                        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+                            if (row and len(row) >= 6 and 
+                                str(row[0]).strip() == fiscal_year and 
+                                str(row[1]).strip() == quarter and 
+                                str(row[4]).strip() == category):
+                                metric_name = row[5]
+                                previous_values[metric_name] = row[6]
                         
                         for key, value in request.form.items():
                             if key.startswith('metrics_') and value.strip():
@@ -248,22 +312,49 @@ def form():
                                 start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
                                 end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
                                 
-                                # Add row to Excel
-                                sheet.cell(row=next_row, column=1).value = fiscal_year
-                                sheet.cell(row=next_row, column=2).value = quarter
-                                sheet.cell(row=next_row, column=3).value = start_date_obj
-                                sheet.cell(row=next_row, column=4).value = end_date_obj
-                                sheet.cell(row=next_row, column=5).value = category
-                                sheet.cell(row=next_row, column=6).value = metric_name
-                                sheet.cell(row=next_row, column=7).value = float(value)
-                                sheet.cell(row=next_row, column=8).value = float(target_value) if target_value.strip() else None
+                                # Check if this metric already exists
+                                existing_row = None
+                                for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+                                    if (row and len(row) >= 6 and 
+                                        str(row[0]).strip() == fiscal_year and 
+                                        str(row[1]).strip() == quarter and 
+                                        str(row[4]).strip() == category and 
+                                        str(row[5]).strip() == metric_name):
+                                        existing_row = row_idx
+                                        break
                                 
-                                next_row += 1
-                                metrics_added += 1
+                                if existing_row:
+                                    # Update existing row
+                                    sheet.cell(row=existing_row, column=7).value = float(value)
+                                    sheet.cell(row=existing_row, column=8).value = float(target_value) if target_value.strip() else None
+                                    metrics_updated += 1
+                                else:
+                                    # Add new row
+                                    sheet.cell(row=next_row, column=1).value = fiscal_year
+                                    sheet.cell(row=next_row, column=2).value = quarter
+                                    sheet.cell(row=next_row, column=3).value = start_date_obj
+                                    sheet.cell(row=next_row, column=4).value = end_date_obj
+                                    sheet.cell(row=next_row, column=5).value = category
+                                    sheet.cell(row=next_row, column=6).value = metric_name
+                                    sheet.cell(row=next_row, column=7).value = float(value)
+                                    sheet.cell(row=next_row, column=8).value = float(target_value) if target_value.strip() else None
+                                    
+                                    next_row += 1
+                                    metrics_added += 1
                         
                         # Save the workbook
-                        wb.save(WORKBOOK_PATH)
-                        flash(f'Successfully added {metrics_added} metrics!', 'success')
+                        save_workbook(wb)
+                        update_message = []
+                        for key, value in request.form.items():
+                            if key.startswith('metrics_'):
+                                metric_name = key[8:]  # Remove 'metrics_' prefix
+                                previous_value = previous_values.get(metric_name, 'N/A')
+                                if not value.strip():
+                                    update_message.append(f"{metric_name}: Reset from {previous_value} to empty")
+                                else:
+                                    update_message.append(f"{metric_name}: Updated from {previous_value} to {value}")
+                        
+                        flash('Changes confirmed: ' + ', '.join(update_message), 'success')
                     else:
                         flash('Could not open the Excel file for writing.', 'error')
                     

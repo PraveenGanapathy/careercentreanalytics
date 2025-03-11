@@ -78,10 +78,10 @@
             <!-- Metrics will be loaded here dynamically -->
         </div>
 
-        <div class="d-flex justify-content-between mt-4">
-            <button type="button" id="autoFillYear" class="btn btn-outline-info">
+        <div class="d-flex justify-content-center mt-12">
+            <!-- <button type="button" id="autoFillYear" class="btn btn-outline-info">
                 <i class="bi bi-magic"></i> Auto Fill Values
-            </button>
+            </button> -->
             <div>
                 <button type="button" id="reset-btn" class="btn btn-outline-secondary me-2">
                     <i class="bi bi-arrow-counterclockwise"></i> Reset
@@ -90,6 +90,7 @@
                     <span id="submit-text">Submit</span>
                     <span id="update-text" style="display:none">Update</span>
                 </button>
+                
             </div>
         </div>
         
@@ -216,7 +217,7 @@ document.addEventListener('DOMContentLoaded', function() {
         years.forEach(year => {
             const option = document.createElement('option');
             option.value = year.value;
-            option.textContent = `FY ${year.label}`;
+            option.textContent = `AY ${year.label}`;
             fiscalYearSelect.appendChild(option);
         });
         
@@ -244,7 +245,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // Store original values for change detection
     let originalValues = {};
     let existingData = false;
-    
+    function validateForm() {
+        const isValid =
+            fiscalYearSelect.value &&
+            quarterSelect.value &&
+            categorySelect.value &&
+            startDateInput.value &&
+            endDateInput.value;
+
+        // Enable or disable the submit button based on validity
+        submitBtn.disabled = !isValid;
+    }
+        // Add event listeners to validate form on input change
+    fiscalYearSelect.addEventListener('change', validateForm);
+    quarterSelect.addEventListener('change', validateForm);
+    categorySelect.addEventListener('change', validateForm);
+    startDateInput.addEventListener('input', validateForm);
+    endDateInput.addEventListener('input', validateForm);
+
+    // Initial validation
+    validateForm();
     // Check if data exists for selected parameters
     function checkExistingData() {
         const fiscalYear = fiscalYearSelect.value;
@@ -285,33 +305,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 showAlert('Error checking existing data', 'danger');
             });
     }
-    function getFiscalYears() {
-    // Get current date
-    const today = new Date();
-    const currentMonth = today.getMonth(); // 0-11 (Jan-Dec)
-    const currentYear = today.getFullYear();
+//     function getFiscalYears() {
+//     // Get current date
+//     const today = new Date();
+//     const currentMonth = today.getMonth(); // 0-11 (Jan-Dec)
+//     const currentYear = today.getFullYear();
     
-    // Determine current fiscal year (assuming fiscal year starts in April)
-    let currentFiscalYear;
-    if (currentMonth >= 3) { // April or later
-        currentFiscalYear = currentYear;
-    } else {
-        currentFiscalYear = currentYear - 1;
-    }
+//     // Determine current fiscal year (assuming fiscal year starts in April)
+//     let currentFiscalYear;
+//     if (currentMonth >= 3) { // April or later
+//         currentFiscalYear = currentYear;
+//     } else {
+//         currentFiscalYear = currentYear - 1;
+//     }
     
-    // Generate fiscal years from 2020 to current
-    const fiscalYears = [];
-    for (let year = 2020; year <= currentFiscalYear; year++) {
-        fiscalYears.push({
-            label: `${year}-${(year + 1).toString().slice(-2)}`, // Format as "2020-21"
-            value: year,
-            startDate: `${year}-04-01`, // April 1st
-            endDate: `${year + 1}-03-31` // March 31st
-        });
-    }
+//     // Generate fiscal years from 2020 to current
+//     const fiscalYears = [];
+//     for (let year = 2020; year <= currentFiscalYear; year++) {
+//         fiscalYears.push({
+//             label: `${year}-${(year + 1).toString().slice(-2)}`, // Format as "2020-21"
+//             value: year,
+//             startDate: `${year}-04-01`, // April 1st
+//             endDate: `${year + 1}-03-31` // March 31st
+//         });
+//     }
     
-    return fiscalYears;
-}
+//     return fiscalYears;
+// }
 
     // Load existing data for the selected parameters
     function loadExistingData(fiscalYear, quarter, category) {
@@ -485,7 +505,7 @@ document.querySelectorAll('.metric-value-input').forEach(input => {
             const currentValue = input.value.trim();
             const originalValue = originalValues[metric] || '';
             
-            if (currentValue === '') return; // Skip empty values
+            if (currentValue === '' && originalValue ==='') return; // Skip empty values
             
             if (originalValue === '') {
                 changes.new.push({ metric, value: currentValue });
@@ -513,7 +533,11 @@ document.querySelectorAll('.metric-value-input').forEach(input => {
         if (changes.updated.length > 0) {
             html += '<h6 class="text-warning">Updated Values:</h6><ul>';
             changes.updated.forEach(item => {
-                html += `<li>${item.metric}: ${item.oldValue} → ${item.newValue}</li>`;
+                if (item.newValue === '') {
+                    html += `<li>${item.metric}: ${item.oldValue} → <span class="text-danger">Removed</span></li>`;
+                } else {
+                    html += `<li>${item.metric}: ${item.oldValue} → ${item.newValue}</li>`;
+                }
             });
             html += '</ul>';
         }
