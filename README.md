@@ -47,6 +47,7 @@ A web application for tracking and visualizing career center metrics across diff
 
 ## Live Demo
 
+![Kapture 2025-05-12 at 10 01 54](https://github.com/user-attachments/assets/9fa148ae-7ff7-45f6-8739-a521207105d6)
 
 
 ## Project Structure
